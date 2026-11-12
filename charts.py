@@ -35,8 +35,7 @@ MIN_STUECKLEISTUNG = 0  # stores at or below this (no data or closed) are exclud
 
 def save(name, caption):
     """Write charts/<name>.png plus charts/<name>.txt with the caption for the slide."""
-    plt.tight_layout()
-    plt.savefig(OUT / f"{name}.png", dpi=150)
+    plt.savefig(OUT / f"{name}.png", dpi=150, bbox_inches="tight", pad_inches=0.05)  # crop to content
     plt.close()
     (OUT / f"{name}.txt").write_text(caption + "\n")
 
@@ -147,7 +146,7 @@ cols = {
 table = df[df[WEEK] == latest][list(cols)]
 cells = [[fmt.format(v) for v, (_, fmt) in zip(row, cols.values())] for row in table.itertuples(index=False)]
 
-fig, ax = plt.subplots(figsize=(12, 3))
+fig, ax = plt.subplots(figsize=(2, 3))  # narrow axes: the table overflows it, so the crop fits the table
 ax.axis("off")
 ax.set_title(f"KPI summary, {latest}")
 t = ax.table(cellText=cells, colLabels=[label for label, _ in cols.values()], loc="center", cellLoc="right")
