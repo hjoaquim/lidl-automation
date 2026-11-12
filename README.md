@@ -2,29 +2,15 @@
 
 Automates the *Stückleistung* section of the weekly report: the MIS exports go in, the section's charts, tables and draft comments come out in Google Slides.
 
-## Pipeline
+## How it works
 
 ```mermaid
 flowchart LR
-    mis[/"MIS exports (XLSX)"/] --> input[Drive input folder]
-
-    subgraph auto [Automation layer]
-        calc[Calculations and business rules] --> visuals[Charts, tables and draft comments]
-    end
-
-    input --> calc
-    visuals --> slides[Google Slides section]
+    mis[/"MIS exports (XLSX)"/] --> data["data/"]
+    data --> charts["charts.py: charts, table and draft comments"]
+    charts --> slides["slides.py: one slide per chart"]
+    slides --> deck[Google Slides deck]
 ```
-
-There are two ways to build the automation layer. **[docs/handover.md](docs/handover.md)** compares them step by step and lists the open questions.
-
-| | Python (this repo) | Google Apps Script |
-|---|---|---|
-| Status | Working prototype, used to validate figures and rules | Proposed long-term solution |
-| Logic lives in | Code | An "engine" Google Sheet the team can edit |
-| Runs on | Laptop, or Cloud Run (GCP) | The client's Google Workspace |
-
-## Python prototype
 
 | File | Does |
 |---|---|
@@ -33,7 +19,18 @@ There are two ways to build the automation layer. **[docs/handover.md](docs/hand
 
 `data/` and `charts/` are git-ignored, so no client data is committed.
 
-### Setup (one-time)
+### Inputs
+
+| File | Content | Granularity |
+|---|---|---|
+| `Input stuckleistung_daredata.xlsx` | Stückleistung, units sold and hours, with deltas vs. VJ (prior year), PEP and Plan | Week × Region (SAN, TON, LOU, PAL + Gesamt) |
+| `Input stuckleistung_daredata_top_flop.xlsx` | Stückleistung, Δ VJ and Δ Plan | Week × Store (~316 stores) |
+
+- Store-level Δ VJ and Δ Plan are absolute differences in units/hour, not percentages.
+- A store at 0 units/hour in a week has no data or was closed that week; it is excluded from Top/Flop.
+- Values for recent weeks are revised afterwards, mainly the hours.
+
+## Setup (one-time)
 
 You need:
 
@@ -58,14 +55,14 @@ gcloud auth application-default set-quota-project daredata-chatbot
 
 Setting the quota project needs permission to use services in the project, e.g. the *Service Usage Consumer* role.
 
-### Run end to end
+## Run end to end
 
 In a terminal:
 
 ```sh
 git clone https://github.com/hjoaquim/lidl-automation.git && cd lidl-automation
 
-# 1. Drop this week's MIS exports into data/ (file names as in docs/handover.md, section 2)
+# 1. Drop this week's MIS exports into data/ (file names as in Inputs above)
 mkdir -p data && cp /path/to/exports/*.xlsx data/
 
 # 2. Build the images and draft comments
@@ -81,7 +78,7 @@ Open the printed link. `slides.py` adds one slide per image after the first slid
 
 The week shown is always the most recent one in the exports. To show a new week, replace the files in `data/` and run steps 2 and 3 again.
 
-### Troubleshooting
+## Troubleshooting
 
 | Error | Fix |
 |---|---|
@@ -91,3 +88,10 @@ The week shown is always the most recent one in the exports. To show a new week,
 | `403 ... API has not been used in project ... or it is disabled` | Enable the APIs (step 1), or point the quota project at a project where they are enabled. |
 | `403 ... The caller does not have permission` on the deck | Your Google account needs edit access to the deck. |
 | `Reauthentication failed` or `invalid_grant` | Your login expired. Redo step 2. |
+
+## Open questions
+
+- What are the exact rules for excluding stores from Top/Flop?
+- Is the "Δ Plan %" on the Top/Flop slide actually a difference in units/hour?
+- Is Monday-morning data provisional? When does it become final?
+- Can the MIS export daily values, month-to-date values, Δ vs. Plan year-to-date, and sales per store?
