@@ -22,7 +22,15 @@ DELTA_PLAN = "Stückleistung Filiale (Stk./h) ∆ Plan Filiale (1104048.45)"
 DELTA_VJ = "Stückleistung Filiale (Stk./h) ∆ VJ Woche (1104048.05)"
 HOURS, HOURS_PLAN = "Nettostunden (1104004.46)", "Nettostunden Filiale Plan Filiale"
 HOURS_DELTA_PLAN = "Nettostunden delta PLAN"
-SALES, SALES_DELTA_VJ = "Abverkauf Filiale Gesamt (Stk./kg) (1403053.01)", "Abverkauf Filiale Gesamt ∆ VJ Woche % (1403053.11)"
+SALES, SALES_DELTA_VJ = (
+    "Abverkauf Filiale Gesamt (Stk./kg) (1403053.01)",
+    "Abverkauf Filiale Gesamt ∆ VJ Woche % (1403053.11)",
+)
+
+# Business rules.
+TREND_WEEKS = 52  # weeks shown in the trend charts
+TOP_N = 10  # stores per side in Top/Flop
+MIN_STUECKLEISTUNG = 0  # stores at or below this (no data or closed) are excluded from Top/Flop
 
 
 def save(name, caption):
@@ -33,16 +41,27 @@ def save(name, caption):
     (OUT / f"{name}.txt").write_text(caption + "\n")
 
 
+def load(file, columns):
+    """Read an export and stop with a clear message if its format changed."""
+    df = pd.read_excel(DATA / file)
+    if missing := [c for c in columns if c not in df.columns]:
+        raise SystemExit(f"{file}: unexpected format, missing columns: {missing}")
+    return df
+
+
 def short(name):
     return name.split(" - ")[-1]  # "LOU - Loures" -> "Loures"
 
 
 # Gesellschaft-level export. Each week has one row per Gesellschaft plus a "Gesamt" (total) row.
 # Weeks are "YYYY KW NN" (zero-padded), so string sort == chronological sort.
-df = pd.read_excel(DATA / "Input stuckleistung_daredata.xlsx")
+df = load(
+    "Input stuckleistung_daredata.xlsx",
+    [WEEK, NAME, KPI, DELTA_PLAN, DELTA_VJ, HOURS, HOURS_PLAN, HOURS_DELTA_PLAN, SALES, SALES_DELTA_VJ],
+)
 df = df[df[WEEK] != "Gesamt"]  # drop the grand total over all weeks
 df[NAME] = df[NAME].fillna("Gesamt")
-weeks = sorted(df[WEEK].unique())[-52:]
+weeks = sorted(df[WEEK].unique())[-TREND_WEEKS:]
 df = df[df[WEEK].isin(weeks)].sort_values(WEEK, kind="stable")  # export is newest-first
 latest = weeks[-1]
 regions, total = df[df[NAME] != "Gesamt"], df[df[NAME] == "Gesamt"].set_index(WEEK)
@@ -50,9 +69,9 @@ now = df[df[WEEK] == latest].set_index(NAME)  # latest week, one row per Gesells
 tot = now.loc["Gesamt"]
 reg = now.drop("Gesamt")
 
-# 1) Weekly Stückleistung per Gesellschaft, last 52 weeks.
+# 1) Weekly Stückleistung per Gesellschaft over the trend window.
 ax = regions.pivot(index=WEEK, columns=NAME, values=KPI).plot(
-    figsize=(12, 5), title="Stückleistung (Stk./h) per Gesellschaft, last 52 weeks"
+    figsize=(12, 5), title=f"Stückleistung (Stk./h) per Gesellschaft, last {TREND_WEEKS} weeks"
 )
 ax.set_xlabel("")
 ax.set_ylabel("Stk./h")
@@ -60,21 +79,21 @@ ax.legend(title=None)
 avg = total[KPI].mean()
 save(
     "1_stueckleistung_trend",
-    f"In {latest}, overall Stückleistung reached {tot[KPI]:.1f} Stk./h, {tot[KPI] - avg:+.1f} vs the 52-week "
+    f"In {latest}, overall Stückleistung reached {tot[KPI]:.1f} Stk./h, {tot[KPI] - avg:+.1f} vs the {TREND_WEEKS}-week "
     f"average of {avg:.1f}. {short(reg[KPI].idxmax())} led with {reg[KPI].max():.1f} Stk./h; "
     f"{short(reg[KPI].idxmin())} trailed with {reg[KPI].min():.1f}.",
 )
 
-# 2) Top/Flop 10 stores vs plan, latest week.
-tf = pd.read_excel(DATA / "Input stuckleistung_daredata_top_flop.xlsx")
-tf = tf[(tf[WEEK] == latest) & tf[NAME].notna() & (tf[KPI] > 0)]  # 0 Stk./h = no data/closed
+# 2) Top/Flop stores vs plan, latest week.
+tf = load("Input stuckleistung_daredata_top_flop.xlsx", [WEEK, NAME, KPI, DELTA_PLAN])
+tf = tf[(tf[WEEK] == latest) & tf[NAME].notna() & (tf[KPI] > MIN_STUECKLEISTUNG)]
 tf = tf.dropna(subset=[DELTA_PLAN]).sort_values(DELTA_PLAN)
-top_flop = pd.concat([tf.head(10), tf.tail(10)])
+top_flop = pd.concat([tf.head(TOP_N), tf.tail(TOP_N)])
 
 fig, ax = plt.subplots(figsize=(10, 7))
 ax.barh(top_flop[NAME], top_flop[DELTA_PLAN], color=["tab:red" if v < 0 else "tab:green" for v in top_flop[DELTA_PLAN]])
 ax.axvline(0, color="black", linewidth=0.8)
-ax.set_title(f"Top/Flop 10 stores: Stückleistung Δ Plan (Stk./h), {latest}")
+ax.set_title(f"Top/Flop {TOP_N} stores: Stückleistung Δ Plan (Stk./h), {latest}")
 best, worst = tf.iloc[-1], tf.iloc[0]
 save(
     "2_top_flop",
@@ -83,7 +102,11 @@ save(
 )
 
 # 3) Stückleistung vs plan and vs last year per Gesellschaft, latest week.
-ax = now[[DELTA_PLAN, DELTA_VJ]].set_axis(["Δ Plan", "Δ Vorjahr (Woche)"], axis=1).plot.bar(figsize=(10, 5), rot=0, title=f"Stückleistung Δ (Stk./h) per Gesellschaft, {latest}")
+ax = (
+    now[[DELTA_PLAN, DELTA_VJ]]
+    .set_axis(["Δ Plan", "Δ Vorjahr (Woche)"], axis=1)
+    .plot.bar(figsize=(10, 5), rot=0, title=f"Stückleistung Δ (Stk./h) per Gesellschaft, {latest}")
+)
 ax.axhline(0, color="black", linewidth=0.8)
 ax.set_xlabel("")
 ax.set_ylabel("Stk./h")
@@ -95,9 +118,11 @@ save(
     + (f" Below both plan and last year: {', '.join(lagging)}." if lagging else ""),
 )
 
-# 4) Net hours actual vs plan, all Gesellschaften, last 52 weeks.
-ax = total[[HOURS, HOURS_PLAN]].set_axis(["Ist", "Plan"], axis=1).plot(
-    figsize=(12, 5), title="Nettostunden Ist vs Plan (Gesamt), last 52 weeks"
+# 4) Net hours actual vs plan, all Gesellschaften, over the trend window.
+ax = (
+    total[[HOURS, HOURS_PLAN]]
+    .set_axis(["Ist", "Plan"], axis=1)
+    .plot(figsize=(12, 5), title=f"Nettostunden Ist vs Plan (Gesamt), last {TREND_WEEKS} weeks")
 )
 ax.set_xlabel("")
 ax.set_ylabel("Stunden")

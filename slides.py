@@ -51,9 +51,13 @@ if not pngs:
 uploaded = []
 try:
     for png in pngs:
-        file_id = drive.files().create(
-            body={"name": f"{PREFIX}{png.name}"}, media_body=MediaFileUpload(png, mimetype="image/png"), fields="id"
-        ).execute()["id"]
+        file_id = (
+            drive.files()
+            .create(
+                body={"name": f"{PREFIX}{png.name}"}, media_body=MediaFileUpload(png, mimetype="image/png"), fields="id"
+            )
+            .execute()["id"]
+        )
         uploaded.append(file_id)
         drive.permissions().create(fileId=file_id, body={"type": "anyone", "role": "reader"}).execute()
 
@@ -68,7 +72,13 @@ try:
         x, y = (page_w - w) / 2, (page_h - h - GAP - CAPTION_H) / 2
 
         requests += [
-            {"createSlide": {"objectId": slide, "insertionIndex": 1 + i, "slideLayoutReference": {"predefinedLayout": "BLANK"}}},
+            {
+                "createSlide": {
+                    "objectId": slide,
+                    "insertionIndex": 1 + i,
+                    "slideLayoutReference": {"predefinedLayout": "BLANK"},
+                }
+            },
             {
                 "createImage": {
                     "objectId": image,
@@ -87,12 +97,24 @@ try:
                     "elementProperties": {
                         "pageObjectId": slide,
                         "size": {"width": emu(w), "height": emu(CAPTION_H)},
-                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": x, "translateY": y + h + GAP, "unit": "EMU"},
+                        "transform": {
+                            "scaleX": 1,
+                            "scaleY": 1,
+                            "translateX": x,
+                            "translateY": y + h + GAP,
+                            "unit": "EMU",
+                        },
                     },
                 }
             },
             {"insertText": {"objectId": caption, "text": png.with_suffix(".txt").read_text().strip()}},
-            {"updateTextStyle": {"objectId": caption, "style": {"fontSize": {"magnitude": CAPTION_PT, "unit": "PT"}}, "fields": "fontSize"}},
+            {
+                "updateTextStyle": {
+                    "objectId": caption,
+                    "style": {"fontSize": {"magnitude": CAPTION_PT, "unit": "PT"}},
+                    "fields": "fontSize",
+                }
+            },
         ]
     slides.batchUpdate(presentationId=PRESENTATION_ID, body={"requests": requests}).execute()
 finally:
