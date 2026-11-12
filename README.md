@@ -18,4 +18,7 @@ flowchart LR
 
 ## Open questions
 
-- Where do the CSVs come from (the "Source: ?" box)?
+1. Where do the CSVs come from (the "Source: ?" box)?
+2. Where does the automation run?
+   1. Google Apps Script
+   2. Cloud Run (GCP)
